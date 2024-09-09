@@ -1,0 +1,21 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.87"
+async-session = "3.0.0"
+axum = { workspace = true, default-features = false }
+axum-extra = { version = "0.9.3", features = ["typed-header"] }
+console_error_panic_hook = { version = "0.1.1" }
+http = "1.1.0"
+oauth2 = "4.4.2"
+reqwest = { version = "0.12.7", features = ["json"] }
+serde = { version = "1.0.210", features = ["derive"] }
+tower-service = "0.3.2"
+tracing = { workspace = true }
+wasm-bindgen-futures = "0.4"
+worker = { version = "0.3.4", features = ["http", "axum"] }
