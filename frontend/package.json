@@ -1,0 +1,23 @@
+{
+  "name": "frontend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "private": true,
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "webpack": "^5.94.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "devDependencies": {
+    "@discord/embedded-app-sdk": "^1.4.2",
+    "@tsconfig/recommended": "^1.0.7",
+    "dotenv": "^16.4.5",
+    "html-webpack-plugin": "^5.6.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.6.2",
+    "webpack-dev-server": "^5.1.0"
+  }
+}

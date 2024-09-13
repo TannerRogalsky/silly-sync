@@ -24,6 +24,7 @@ impl IntoResponse for AuthRedirect {
 #[derive(Debug, serde::Deserialize)]
 pub struct AuthRequest {
     code: String,
+    #[allow(unused)]
     state: String,
 }
 

@@ -55,6 +55,8 @@ pub fn router() -> Router {
         .route("/auth/authorized", get(oauth::login_authorized))
         .route("/protected", get(protected))
         .route("/logout", get(oauth::logout))
+        .route("/token", axum::routing::post(token))
+        .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(app_state)
 }
 
@@ -71,4 +73,49 @@ async fn index(user: Option<User>) -> impl IntoResponse {
 
 async fn protected(user: User) -> impl IntoResponse {
     format!("Welcome to the protected area :)\nHere's your info:\n{user:?}")
+}
+
+#[derive(serde::Deserialize)]
+struct TokenRequest {
+    code: String,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct TokenResponse {
+    access_token: String,
+}
+
+async fn token(
+    axum::Json(request): axum::Json<TokenRequest>,
+) -> std::result::Result<axum::Json<TokenResponse>, AppError> {
+    use anyhow::Context;
+    let client_id = std::env::var("CLIENT_ID").context("Missing CLIENT_ID!")?;
+    let client_secret = std::env::var("CLIENT_SECRET").context("Missing CLIENT_SECRET!")?;
+
+    #[derive(serde::Serialize)]
+    struct Body {
+        client_id: String,
+        client_secret: String,
+        grant_type: &'static str,
+        code: String,
+    }
+
+    let body = Body {
+        client_id,
+        client_secret,
+        grant_type: "authorization_code",
+        code: request.code,
+    };
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post("https://discord.com/api/oauth2/token")
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(serde_urlencoded::to_string(&body).unwrap())
+        .send()
+        .await?
+        .json::<TokenResponse>()
+        .await?;
+
+    Ok(axum::Json(response))
 }

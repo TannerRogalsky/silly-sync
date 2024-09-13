@@ -8,13 +8,18 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.87"
 async-session = "3.0.0"
-axum = { workspace = true, default-features = false }
+axum = { workspace = true, default-features = false, features = [
+    "query",
+    "json",
+] }
 axum-extra = { version = "0.9.3", features = ["typed-header"] }
 console_error_panic_hook = { version = "0.1.1" }
 http = "1.1.0"
 oauth2 = "4.4.2"
 reqwest = { version = "0.12.7", features = ["json"] }
 serde = { version = "1.0.210", features = ["derive"] }
+serde_urlencoded = "0.7.1"
+tower-http = { version = "0.5.2", features = ["trace"] }
 tower-service = "0.3.2"
 tracing = { workspace = true }
 wasm-bindgen-futures = "0.4"
