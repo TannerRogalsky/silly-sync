@@ -1,5 +1,5 @@
 name: Build & Deploy
-run-name: ${{ github.actor }} is building pax-centuria 🚀
+run-name: ${{ github.actor }} is building Silly Sync 🚀
 on:
   push:
     branches:
