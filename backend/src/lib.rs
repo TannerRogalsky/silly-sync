@@ -1,78 +1,36 @@
-mod error;
-mod oauth;
+mod sync;
+// mod error;
+// mod oauth;
 // mod session_store;
-mod user;
+// mod user;
+// mod ws;
 
-pub use async_session::MemoryStore as SessionStore;
-use axum::{extract::FromRef, response::IntoResponse, routing::get, Router};
-use error::AppError;
-use tower_service::Service;
-use user::User;
+pub use sync::SillySync;
 use worker::*;
 
 #[event(fetch)]
-async fn fetch(
-    req: HttpRequest,
-    _env: Env,
-    _ctx: Context,
-) -> Result<axum::http::Response<axum::body::Body>> {
+async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     console_error_panic_hook::set_once();
 
-    Ok(router().call(req).await?)
+    let router = Router::new()
+        .get_async("/", index)
+        .post_async("/token", token)
+        .get_async("/room/:room_name", |req, ctx| async move {
+            let name = match ctx.param("room_name") {
+                Some(name) => name,
+                None => return Response::error("Expected a room name.", 404),
+            };
+            let namespace = ctx.env.durable_object("SILLY_SYNC")?;
+            let id = namespace.id_from_name(name)?;
+            let room_object = id.get_stub()?;
+            room_object.fetch_with_request(req).await
+        });
+
+    router.run(req, env).await
 }
 
-static COOKIE_NAME: &str = "SESSION";
-
-#[derive(Clone)]
-struct AppState {
-    store: SessionStore,
-    oauth_client: oauth::BasicClient,
-}
-
-impl FromRef<AppState> for SessionStore {
-    fn from_ref(state: &AppState) -> Self {
-        state.store.clone()
-    }
-}
-
-impl FromRef<AppState> for oauth::BasicClient {
-    fn from_ref(state: &AppState) -> Self {
-        state.oauth_client.clone()
-    }
-}
-
-pub fn router() -> Router {
-    let store = SessionStore::new();
-    let oauth_client = oauth::oauth_client().unwrap();
-    let app_state = AppState {
-        store,
-        oauth_client,
-    };
-
-    Router::new()
-        .route("/", get(index))
-        .route("/auth/discord", get(oauth::discord_auth))
-        .route("/auth/authorized", get(oauth::login_authorized))
-        .route("/protected", get(protected))
-        .route("/logout", get(oauth::logout))
-        .route("/token", axum::routing::post(token))
-        .layer(tower_http::trace::TraceLayer::new_for_http())
-        .with_state(app_state)
-}
-
-// Session is optional
-async fn index(user: Option<User>) -> impl IntoResponse {
-    match user {
-        Some(u) => format!(
-            "Hey {}! You're logged in!\nYou may now access `/protected`.\nLog out with `/logout`.",
-            u.username
-        ),
-        None => "You're not logged in.\nVisit `/auth/discord` to do so.".to_string(),
-    }
-}
-
-async fn protected(user: User) -> impl IntoResponse {
-    format!("Welcome to the protected area :)\nHere's your info:\n{user:?}")
+async fn index(_request: Request, _ctx: RouteContext<()>) -> Result<Response> {
+    Response::from_html("HI")
 }
 
 #[derive(serde::Deserialize)]
@@ -85,12 +43,19 @@ struct TokenResponse {
     access_token: String,
 }
 
-async fn token(
-    axum::Json(request): axum::Json<TokenRequest>,
-) -> std::result::Result<axum::Json<TokenResponse>, AppError> {
-    use anyhow::Context;
-    let client_id = std::env::var("CLIENT_ID").context("Missing CLIENT_ID!")?;
-    let client_secret = std::env::var("CLIENT_SECRET").context("Missing CLIENT_SECRET!")?;
+async fn token(mut request: Request, ctx: RouteContext<()>) -> Result<Response> {
+    let payload = request.json::<TokenRequest>().await?;
+
+    let client_id = ctx
+        .env
+        .secret("CLIENT_ID")
+        .map_err(|_| Error::RustError("Missing CLIENT_ID!".to_string()))?
+        .to_string();
+    let client_secret = ctx
+        .env
+        .secret("CLIENT_SECRET")
+        .map_err(|_| Error::RustError("Missing CLIENT_SECRET!".to_string()))?
+        .to_string();
 
     #[derive(serde::Serialize)]
     struct Body {
@@ -104,7 +69,7 @@ async fn token(
         client_id,
         client_secret,
         grant_type: "authorization_code",
-        code: request.code,
+        code: payload.code,
     };
 
     let client = reqwest::Client::new();
@@ -113,9 +78,11 @@ async fn token(
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(serde_urlencoded::to_string(&body).unwrap())
         .send()
-        .await?
+        .await
+        .map_err(|err| Error::RustError(format!("{}", err)))?
         .json::<TokenResponse>()
-        .await?;
+        .await
+        .map_err(|err| Error::RustError(format!("{}", err)))?;
 
-    Ok(axum::Json(response))
+    Response::from_json(&response)
 }

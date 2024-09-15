@@ -2,6 +2,15 @@ import { DiscordSDK, CommandResponse } from '@discord/embedded-app-sdk';
 
 type Auth = CommandResponse<'authenticate'>;
 
+type User = {
+    x: number,
+    y: number,
+}
+
+type State = {
+    users: { [k: string]: User }
+}
+
 const CLIENT_ID = process.env.CLIENT_ID!;
 const discordSdk = new DiscordSDK(CLIENT_ID);
 
@@ -9,7 +18,76 @@ setupDiscordSdk().then((auth) => {
     console.log("AUTHED");
     appendVoiceChannelName();
     appendGuildAvatar(auth);
+    loop(auth);
 })
+
+function load_avatar(auth: Auth): Promise<HTMLImageElement> {
+    const avatar = new Image(80, 80);
+    avatar.src = `https://cdn.discordapp.com/avatars/${auth.user.id}/${auth.user.avatar}.webp?size=80`;
+    return new Promise((resolve) => {
+        avatar.onload = () => {
+            resolve(avatar);
+        }
+    });
+}
+
+async function loop(auth: Auth) {
+    const app = document.querySelector<HTMLDivElement>('#app');
+    if (!app) {
+        throw new Error('Could not find #app element');
+    }
+
+    const WIDTH = 720;
+    const HEIGHT = 480;
+
+    const avatar = await load_avatar(auth);
+    let state: State = await (await fetch("/.proxy/api/room/" + discordSdk.instanceId)).json();
+    const protocol = window.location.protocol.startsWith("https") ? "wss" : "ws";
+    const ws = new WebSocket(`${protocol}://${window.location.host}/.proxy/api/room/${discordSdk.instanceId}`);
+
+    ws.onopen = (_event) => {
+        state.users[auth.user.id] = {
+            x: Math.floor(Math.random() * WIDTH),
+            y: Math.floor(Math.random() * HEIGHT)
+        }
+        ws.send(JSON.stringify(state));
+    }
+
+    ws.onmessage = (event) => {
+        try {
+            state = JSON.parse(event.data);
+        } catch (e) {
+            console.warn("state parse error", e)
+        }
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = WIDTH;
+    canvas.height = HEIGHT;
+    app.appendChild(canvas);
+
+    canvas.onclick = (event) => {
+        const rect = canvas.getBoundingClientRect()
+        const x = event.clientX - rect.left
+        const y = event.clientY - rect.top;
+        state.users[auth.user.id].x = x;
+        state.users[auth.user.id].y = y;
+        ws.send(JSON.stringify(state))
+    }
+
+    const ctx = canvas.getContext("2d")!;
+
+    const inner = () => {
+        ctx.clearRect(0, 0, WIDTH, HEIGHT);
+        for (const user_id in state.users) {
+            const user = state.users[user_id];
+            ctx.drawImage(avatar, user.x, user.y);
+        }
+
+        requestAnimationFrame(inner)
+    }
+    requestAnimationFrame(inner);
+}
 
 async function setupDiscordSdk(): Promise<Auth> {
     await discordSdk.ready();

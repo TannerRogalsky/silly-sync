@@ -13,6 +13,12 @@ use oauth2::{
     RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
 
+impl axum::extract::FromRef<crate::AppState> for BasicClient {
+    fn from_ref(state: &crate::AppState) -> Self {
+        state.oauth_client.clone()
+    }
+}
+
 pub struct AuthRedirect;
 
 impl IntoResponse for AuthRedirect {
@@ -103,13 +109,14 @@ pub async fn logout(
 }
 
 pub async fn login_authorized(
-    Query(query): Query<AuthRequest>,
+    // Query(query): Query<AuthRequest>,
     State(store): State<crate::SessionStore>,
     State(oauth_client): State<BasicClient>,
 ) -> Result<impl IntoResponse, crate::AppError> {
     // Get an auth token
     let token = oauth_client
-        .exchange_code(AuthorizationCode::new(query.code.clone()))
+        .exchange_code(AuthorizationCode::new(String::new()))
+        // .exchange_code(AuthorizationCode::new(query.code.clone()))
         .request_async(async_http_client)
         .await
         .context("failed in sending request request to authorization server")?;

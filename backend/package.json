@@ -1,0 +1,12 @@
+{
+    "name": "backend",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "start": "wrangler dev --port 8000"
+    },
+    "license": "ISC",
+    "devDependencies": {
+        "wrangler": "3.78.2"
+    }
+}
