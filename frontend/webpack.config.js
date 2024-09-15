@@ -9,11 +9,11 @@ const env_config = {
         devtool: 'inline-source-map',
     },
     production: {
-
+        devtool: 'source-map',
     }
 }
 
-module.exports = (env, argv) => {
+module.exports = (_env, argv) => {
     return {
         mode: argv.mode,
         devtool: env_config[argv.mode].devtool,
