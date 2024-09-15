@@ -28,7 +28,7 @@ jobs:
         run: rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
     
       - name: Install worker-build
-        run: cargo install -q worker-build
+        run: cargo install -q worker-build --force
 
       - name: Build & Deploy Worker
         uses: cloudflare/wrangler-action@v3
@@ -62,6 +62,8 @@ jobs:
       - name: Build static page
         working-directory: ./frontend
         run: npm run build
+        env:
+          CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID }}
 
       - name: Upload
         uses: actions/upload-pages-artifact@v3
