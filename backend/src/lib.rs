@@ -8,9 +8,29 @@ mod sync;
 pub use sync::SillySync;
 use worker::*;
 
+#[event(start)]
+fn start() {
+    use tracing_subscriber::fmt::format::Pretty;
+    use tracing_subscriber::fmt::time::UtcTime;
+    use tracing_subscriber::prelude::*;
+    use tracing_web::{performance_layer, MakeConsoleWriter};
+
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .with_ansi(false) // Only partially supported across JavaScript runtimes
+        .with_timer(UtcTime::rfc_3339()) // std::time is not available in browsers
+        .with_writer(MakeConsoleWriter); // write events to the console
+    let perf_layer = performance_layer().with_details_from_fields(Pretty::default());
+    tracing_subscriber::registry()
+        .with(fmt_layer)
+        .with(perf_layer)
+        .init();
+}
+
 #[event(fetch)]
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     console_error_panic_hook::set_once();
+    tracing::info!(request=?req, "Handling request");
 
     let router = Router::new()
         .get_async("/", index)
@@ -22,6 +42,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             };
             let namespace = ctx.env.durable_object("SILLY_SYNC")?;
             let id = namespace.id_from_name(name)?;
+            tracing::debug!(id = id.to_string(), "Delegating to DO");
             let room_object = id.get_stub()?;
             room_object.fetch_with_request(req).await
         });

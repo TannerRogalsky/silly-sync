@@ -5,6 +5,7 @@ type Auth = CommandResponse<'authenticate'>;
 type User = {
     x: number,
     y: number,
+    avatar: String
 }
 
 type State = {
@@ -19,11 +20,13 @@ setupDiscordSdk().then((auth) => {
     appendVoiceChannelName();
     appendGuildAvatar(auth);
     loop(auth);
-})
+}).catch((reason) => {
+    console.error("NOT AUTHED", reason);
+});
 
-function load_avatar(auth: Auth): Promise<HTMLImageElement> {
+function load_avatar(user_id: String, avatar_id: String): Promise<HTMLImageElement> {
     const avatar = new Image(80, 80);
-    avatar.src = `https://cdn.discordapp.com/avatars/${auth.user.id}/${auth.user.avatar}.webp?size=80`;
+    avatar.src = `https://cdn.discordapp.com/avatars/${user_id}/${avatar_id}.webp?size=80`;
     return new Promise((resolve) => {
         avatar.onload = () => {
             resolve(avatar);
@@ -40,26 +43,48 @@ async function loop(auth: Auth) {
     const WIDTH = 720;
     const HEIGHT = 480;
 
-    const avatar = await load_avatar(auth);
+    const avatar_cache = {
+        [auth.user.id]: await load_avatar(auth.user.id, auth.user.avatar!),
+    };
     let state: State = await (await fetch("/.proxy/api/room/" + discordSdk.instanceId)).json();
     const protocol = window.location.protocol.startsWith("https") ? "wss" : "ws";
-    const ws = new WebSocket(`${protocol}://${window.location.host}/.proxy/api/room/${discordSdk.instanceId}`);
+    let ws: WebSocket | null;
 
-    ws.onopen = (_event) => {
-        state.users[auth.user.id] = {
-            x: Math.floor(Math.random() * WIDTH),
-            y: Math.floor(Math.random() * HEIGHT)
+    const newWS = () => {
+        ws = new WebSocket(`${protocol}://${window.location.host}/.proxy/api/room/${discordSdk.instanceId}?user_id=${auth.user.id}`);
+
+        ws.onopen = (_event) => {
+            state.users[auth.user.id] = {
+                x: Math.floor(Math.random() * WIDTH),
+                y: Math.floor(Math.random() * HEIGHT),
+                avatar: auth.user.avatar!
+            }
+            ws!.send(JSON.stringify(state));
         }
-        ws.send(JSON.stringify(state));
+
+        ws.onmessage = async (event) => {
+            try {
+                state = JSON.parse(event.data);
+                for (const user_id in state.users) {
+                    const user = state.users[user_id];
+                    const avatar = avatar_cache[user_id];
+                    if (!avatar) {
+                        avatar_cache[user_id] = await load_avatar(user_id, user.avatar);
+                    }
+                }
+            } catch (e) {
+                console.warn("state parse error", e)
+            }
+        }
+
+        ws.onclose = (_event) => {
+            ws = newWS();
+        }
+
+        return ws;
     }
 
-    ws.onmessage = (event) => {
-        try {
-            state = JSON.parse(event.data);
-        } catch (e) {
-            console.warn("state parse error", e)
-        }
-    }
+    ws = newWS();
 
     const canvas = document.createElement("canvas");
     canvas.width = WIDTH;
@@ -72,16 +97,18 @@ async function loop(auth: Auth) {
         const y = event.clientY - rect.top;
         state.users[auth.user.id].x = x;
         state.users[auth.user.id].y = y;
-        ws.send(JSON.stringify(state))
+        ws!.send(JSON.stringify(state))
     }
 
     const ctx = canvas.getContext("2d")!;
-
     const inner = () => {
         ctx.clearRect(0, 0, WIDTH, HEIGHT);
         for (const user_id in state.users) {
             const user = state.users[user_id];
-            ctx.drawImage(avatar, user.x, user.y);
+            const avatar = avatar_cache[user_id];
+            if (avatar) {
+                ctx.drawImage(avatar, user.x, user.y);
+            }
         }
 
         requestAnimationFrame(inner)

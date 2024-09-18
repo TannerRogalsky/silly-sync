@@ -28,7 +28,8 @@ jobs:
         run: rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
     
       - name: Install worker-build
-        run: cargo install -q worker-build --force
+        continue-on-error: true
+        run: cargo install -q worker-build 
 
       - name: Build & Deploy Worker
         uses: cloudflare/wrangler-action@v3

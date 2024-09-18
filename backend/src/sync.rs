@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use worker::*;
 
+const GAME_STATE_KEY: &str = "GAME_STATE";
+
 #[derive(Default, Serialize, Deserialize)]
 struct WebsocketAttachment {
-    id: u32,
+    id: String,
     name: Option<String>,
 }
 
@@ -17,6 +19,7 @@ struct Session {
 struct User {
     x: f32,
     y: f32,
+    avatar: String,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -27,7 +30,7 @@ struct GameState {
 #[durable_object]
 pub struct SillySync {
     state: State,
-    sessions: std::collections::HashMap<u32, Session>,
+    sessions: std::collections::HashMap<String, Session>,
 }
 
 impl SillySync {
@@ -47,6 +50,15 @@ impl SillySync {
             if self.sessions.is_empty() {
                 // reset the durable object
                 self.state.storage().delete_all().await?;
+            } else {
+                let mut state = self
+                    .state
+                    .storage()
+                    .get::<GameState>(GAME_STATE_KEY)
+                    .await?;
+                state.users.remove(&attachment.id);
+                self.state.storage().put(GAME_STATE_KEY, &state).await?;
+                self.broadcast(&state)?;
             }
         }
         Ok(())
@@ -64,7 +76,7 @@ impl DurableObject for SillySync {
                     .deserialize_attachment::<WebsocketAttachment>()
                     .ok()
                     .flatten()?;
-                Some((meta.id, Session { meta, ws }))
+                Some((meta.id.clone(), Session { meta, ws }))
             })
             .collect();
         Self { state, sessions }
@@ -81,23 +93,25 @@ impl DurableObject for SillySync {
             let WebSocketPair { client, server } = WebSocketPair::new()?;
 
             self.state.accept_web_socket(&server);
-            let id = self
-                .state
-                .storage()
-                .get("USER_ID")
-                .await
-                .unwrap_or_default();
-            self.state.storage().put("USER_ID", id + 1).await?;
-            let meta = WebsocketAttachment { id, name: None };
+            let url = req.url()?;
+            let (_, user_id) = url
+                .query_pairs()
+                .find(|(key, _value)| key == "user_id")
+                .ok_or_else(|| Error::RustError(String::from("No user_id param")))?;
+            let meta = WebsocketAttachment {
+                id: user_id.to_string(),
+                name: None,
+            };
             server.serialize_attachment(&meta)?;
-            self.sessions.insert(id, Session { meta, ws: server });
+            self.sessions
+                .insert(user_id.to_string(), Session { meta, ws: server });
 
             Response::from_websocket(client)
         } else {
             let state = self
                 .state
                 .storage()
-                .get::<GameState>("GAME_STATE")
+                .get::<GameState>(GAME_STATE_KEY)
                 .await
                 .unwrap_or_default();
             Response::from_json(&state)
@@ -114,7 +128,7 @@ impl DurableObject for SillySync {
             WebSocketIncomingMessage::Binary(data) => serde_json::from_slice(&data)?,
         };
 
-        self.state.storage().put("GAME_STATE", &state).await?;
+        self.state.storage().put(GAME_STATE_KEY, &state).await?;
         self.broadcast(&state)?;
 
         Ok(())
